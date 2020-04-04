@@ -7,7 +7,16 @@ library(readxl)
 library(dplyr)
 
 df <- read_excel("churn_dataset.xlsx", sheet="Case Data")
-View(df)
+
+#From the case, it is said that the customers within the age group of 6-14 are considered to be 
+#the riskiest group when it comes to churn.
+
+#So, we verify the distribution of churn among these customers
+df_mid <- df[ which(cust_age>=6 & cust_age <=14),]
+dim(df_mid)
+#There are 2284 customers in this group. Out of which 165 have churned.
+
+table(df_mid$churn)
 
 dim(df)
 #6347 rows and 13 columns
@@ -29,10 +38,6 @@ names(df) <-  c("id","cust_age","churn","chi_0","chi_01","supp_case_0","supp_cas
                 "sp_01","logins_01","blog_art_01","views_01","days_since_last_login_01")
 
 str(df)
-View(df)
-
-#Backup of the dataset
-df_bkp <- df
 
 #Variable Transformation
 df$churn <- as.factor(df$churn)
@@ -48,10 +53,9 @@ df$views_01 <- as.numeric(df$views_01)
 df$id <- NULL
 
 str(df)
-View(df)
 
-#df$churn[df$churn=="1"] <- "Yes"
-#df$churn[df$churn=="0"] <- "No"
+#Backup of the dataset
+df_bkp <- df
 
 ##############    INSIGHTS FROM DATA   #############################
 #cust_age represents how long (in months) customer has been with QWC
@@ -74,6 +78,8 @@ df %>% group_by(churn) %>% summarise(mean=mean(cust_age), med=median(cust_age), 
 #   Yes      15.4    13   8.87
 
 table(df$churn)
+# 0     1 
+#6024  323
 #6024 rows with churn Yes and 323 rows with No
 
 summary(df[df$churn=="1",]$cust_age)
@@ -127,9 +133,6 @@ ggplot(df, aes(y=churn, x=cust_age, color=churn))+
 
 #####################   INFERENCES   ###############################
 
-
-
-
 ####################################################################
 
 ###Plotting chi_0 against churn
@@ -148,6 +151,57 @@ plot(plt2)
 grid.arrange(plt1,plt2, ncol=2)
 
 ####################################################################
+
+################ Correlation Matrix ################################
+str(df)
+
+df2 <- df[,-2]
+str(df2)
+install.packages("corrplot")
+library(corrplot)
+corr<-cor(df2)
+
+head(round(corr,2))
+corrplot(corr, method="circle")
+
+#Inferences
+#There doesn't seem to be high correlation between the independent variables
+
+
+####################################################################
+
+#First, we fit a logistic regression model on the entire dataset with all the features
+
+######################  Logreg Model #####################################
+#Model 1 on the complete dataset
+model = glm(churn ~ . , data = df, family = "binomial")
+summary(model)
+
+#AIC 2464.3
+
+confint(model)
+
+
+######################  Predictions  #####################################
+pred_672 <- predict(model,df[672,], type="response")
+pred_672 
+#0.003810451
+#The probability is very low. So, we can infer that the customer (6762) will not leave between Dec 2011 and Feb 2012
+df[672,]$churn #Churn value is 0.
+
+pred_354 <- predict(model,df[354,], type="response")
+pred_354
+#0.004779791
+#The probability is very low. So, we can infer that the customer (6762) will not leave between Dec 2011 and Feb 2012
+df[354,]$churn #Churn value is 0.
+
+pred_5203 <- predict(model,df[5203,], type="response")
+pred_5203
+#0.04273919
+#The probability is very low. So, we can infer that the customer (6762) will not leave between Dec 2011 and Feb 2012
+df[5203,]$churn #Churn value is 0.
+
+###########################################################################
 
 ######################  t-test #####################################
 #Null Hyp: Population mean of customers who churned IS EQUAL to popln mean of customers who didn't churn
@@ -202,6 +256,7 @@ res[,c(1,5,6)]
 
 #From the p-values of the t-tests, following are the statistically significant predictors 
 #at 95% level confidence
+
 str(df)
 
 #cust_age 
@@ -211,5 +266,88 @@ str(df)
 #sp_0
 #logins_01
 #blog_art_01
-#views_01
 #days_since_last_login_01
+
+
+
+#Removed insignificant variables
+df_mod <- df[c(1,2,3,4,5,7,9,10,12)]
+
+dim(df_mod)
+# 6347 rows & 9 features
+str(df_mod)
+
+#The problem statement instructs to predict the churn for three customers ( cust# 672, 354 & 5203).
+#So, we exclude these rows from training data and test the model on these customers
+
+########################## TRAIN/TEST SPLIT #########################
+train <- df_mod[-c(672,354,5203),]
+test <- df[c(672,354,5203),]
+
+dim(train)
+dim(test)
+
+#Trian set -- df  -------6344 rows and 9 columns
+#Test set -- df_test ----3 rows and 12 columns
+
+#####################################################################
+
+
+#We proceed to fit a logistic Regression model with a forward selection.
+###################### Forward Selection #################################
+f1 = glm(churn ~ cust_age , data = train, family="binomial")
+f2 = glm(churn~. , data=train, family="binomial")
+mod2 = step(f1, scope=list(lower=f1, upper=f2), direction="forward")
+
+summary(mod2)
+#AIC 2459.4
+
+##Features with statistical significance
+# 1. cust_age
+# 2. chi_0
+# 3. days_since_last_login_01
+# 4. chi_01
+
+
+#We verify the feature selection with Backward selection also
+step(f2, data=train, direction="backward")
+
+##Features with statistical significance
+# 1. cust_age
+# 2. chi_0
+# 3. chi_01
+# 4. days_since_last_login_01
+
+#StepWise regression
+step(f1, scope = list(upper=f2), data=train, direction="both")
+
+##Features with statistical significance
+# 1. cust_age
+# 2. chi_0
+# 3. days_since_last_login_01
+# 4. chi_01
+
+test[1]
+
+
+######################  Predictions  #####################################
+pred_672 <- predict(model2,test[1,], type="response")
+pred_672 
+#0.03605923
+#The probability is very low. So, we can infer that the customer (6762) will not leave between Dec 2011 and Feb 2012
+test[1,]$churn #Churn value is 0.
+
+pred_354 <- predict(model2,test[2,], type="response")
+pred_354
+#0.04372617
+#The probability is very low. So, we can infer that the customer (6762) will not leave between Dec 2011 and Feb 2012
+test[2,]$churn #Churn value is 0.
+
+pred_5203 <- predict(model2,test[3,], type="response")
+pred_5203
+#0.04068113
+#The probability is very low. So, we can infer that the customer (6762) will not leave between Dec 2011 and Feb 2012
+test[3,]$churn #Churn value is 0.
+
+
+
